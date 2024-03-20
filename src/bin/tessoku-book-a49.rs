@@ -8,7 +8,7 @@
 #![allow(clippy::needless_range_loop)]
 #![allow(dead_code)]
 
-use proconio::input;
+use proconio::{input, marker::Usize1};
 use rand::prelude::*;
 
 #[derive(Default)]
@@ -32,6 +32,8 @@ fn main() {
     eprintln!("Elapsed: {}", (elapsed_time * 1000.0) as usize);
 }
 
+const N: usize = 20;
+
 fn solve() {
     let time_limit = 1.98;
     let time_keeper = TimeKeeper::new(time_limit);
@@ -40,6 +42,9 @@ fn solve() {
 #[derive(Clone)]
 struct Node {
     track_id: usize,
+    score: i64,
+    hash: u64,
+    state: [i8; N],
 }
 impl Node {
     fn new_node(&self, cand: &Cand) -> Node {
@@ -59,9 +64,6 @@ impl Cand {
         todo!();
     }
 }
-
-const MAX_WIDTH: usize = 1000;
-const TURN: usize = 100;
 
 struct BeamSearch {
     track: Vec<(usize, u8)>,
@@ -113,11 +115,11 @@ impl BeamSearch {
 
     fn solve(&mut self, input: &Input) -> Vec<u8> {
         use std::cmp::Reverse;
-        let M = MAX_WIDTH;
+        let M = 1000;
 
         let mut cands = Vec::<Cand>::new();
         let mut set = std::collections::HashSet::new();
-        for t in 0..TURN {
+        for t in 0..input.T {
             if t != 0 {
                 cands.sort_unstable_by_key(|a| Reverse(a.eval_score));
                 set.clear();
@@ -134,7 +136,7 @@ impl BeamSearch {
         }
 
         let best = cands.iter().max_by_key(|a| a.raw_score(input)).unwrap();
-        eprintln!("Score :{}", best.raw_score(input));
+        eprintln!("score = {}", best.raw_score(input));
 
         let mut ret = self.restore(best.parent);
         ret.push(best.op);
@@ -143,11 +145,17 @@ impl BeamSearch {
     }
 }
 
-struct Input {}
+struct Input {
+    T: usize,
+    PQR: Vec<(usize, usize, usize)>,
+}
 
 fn read_input() -> Input {
-    input! {}
-    Input {}
+    input! {
+        T: usize,
+        PQR: [(Usize1, Usize1, Usize1)]
+    }
+    Input { T, PQR }
 }
 
 #[derive(Debug, Clone)]
