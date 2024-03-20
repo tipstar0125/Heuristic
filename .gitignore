@@ -1,0 +1,6 @@
+target/
+*.exe
+.vscode/
+out
+out/
+memo.md
