@@ -35,11 +35,31 @@ fn main() {
 const N: usize = 20;
 
 fn solve() {
-    let time_limit = 1.98;
-    let time_keeper = TimeKeeper::new(time_limit);
+    let mut rng = rand_pcg::Pcg64Mcg::new(0);
+    let input = read_input(&mut rng);
+    let mut init_hash = 0;
+    for i in 0..N {
+        init_hash ^= input.hashes_plus[i][0];
+    }
+
+    let init_node = Node {
+        track_id: !0,
+        score: N as i64,
+        hash: init_hash,
+        state: [0; N],
+    };
+    let mut beam = BeamSearch::new(init_node);
+    let ret = beam.solve(&input);
+    for &op in &ret {
+        if op == 0 {
+            println!("A");
+        } else {
+            println!("B");
+        }
+    }
 }
 
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 struct Node {
     track_id: usize,
     score: i64,
@@ -47,12 +67,21 @@ struct Node {
     state: [i8; N],
 }
 impl Node {
-    fn new_node(&self, cand: &Cand) -> Node {
-        todo!();
+    fn new_node(&self, cand: &Cand, mut state: [i8; N], input: &Input, turn: usize) -> Node {
+        let add = if cand.op == 0 { 1 } else { -1 };
+        for &idx in &input.PQR[turn] {
+            state[idx] += add;
+        }
+        Node {
+            track_id: !0,
+            score: cand.eval_score,
+            hash: cand.hash,
+            state,
+        }
     }
 }
 
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 struct Cand {
     op: u8,
     parent: usize,
@@ -60,11 +89,12 @@ struct Cand {
     hash: u64,
 }
 impl Cand {
-    fn raw_score(&self, input: &Input) -> i64 {
-        todo!();
+    fn raw_score(&self, _input: &Input) -> i64 {
+        self.eval_score
     }
 }
 
+#[derive(Debug)]
 struct BeamSearch {
     track: Vec<(usize, u8)>,
     nodes: Vec<Node>,
@@ -79,21 +109,107 @@ impl BeamSearch {
         }
     }
 
-    fn enum_cands(&self, input: &Input, cands: &mut Vec<Cand>) {
+    fn enum_cands(&self, input: &Input, cands: &mut Vec<Cand>, turn: usize) {
         for i in 0..self.nodes.len() {
-            self.append_cands(input, i, cands);
+            self.append_cands(input, i, cands, turn);
         }
     }
 
-    fn update<I: Iterator<Item = Cand>>(&mut self, cands: I) {
+    fn append_cands(&self, input: &Input, idx: usize, cands: &mut Vec<Cand>, turn: usize) {
+        let parent_node = &self.nodes[idx];
+        let parent_score = parent_node.state.iter().filter(|&&x| x == 0).count() as i64;
+        let parent_partial_score = {
+            let mut ret = 0;
+            for &idx in &input.PQR[turn] {
+                if parent_node.state[idx] == 0 {
+                    ret += 1;
+                }
+            }
+            ret
+        };
+
+        // +1
+        let partial_score = {
+            let mut ret = 0;
+            for &idx in &input.PQR[turn] {
+                if parent_node.state[idx] + 1 == 0 {
+                    ret += 1;
+                }
+            }
+            ret
+        };
+        let next_score = parent_score + (partial_score - parent_partial_score);
+        let hash = {
+            let mut ret = parent_node.hash;
+            for &idx in &input.PQR[turn] {
+                ret ^= if parent_node.state[idx] >= 0 {
+                    input.hashes_plus[idx][parent_node.state[idx] as usize]
+                } else {
+                    input.hashes_minus[idx][parent_node.state[idx].unsigned_abs() as usize]
+                };
+                ret ^= if parent_node.state[idx] + 1 >= 0 {
+                    input.hashes_plus[idx][(parent_node.state[idx] + 1) as usize]
+                } else {
+                    input.hashes_minus[idx][(parent_node.state[idx] + 1).unsigned_abs() as usize]
+                };
+            }
+            ret
+        };
+
+        let cand = Cand {
+            op: 0,
+            parent: idx,
+            eval_score: parent_node.score + next_score,
+            hash,
+        };
+        cands.push(cand);
+
+        // -1
+        let partial_score = {
+            let mut ret = 0;
+            for &idx in &input.PQR[turn] {
+                if parent_node.state[idx] - 1 == 0 {
+                    ret += 1;
+                }
+            }
+            ret
+        };
+        let next_score = parent_score + (partial_score - parent_partial_score);
+        let hash = {
+            let mut ret = parent_node.hash;
+            for &idx in &input.PQR[turn] {
+                ret ^= if parent_node.state[idx] >= 0 {
+                    input.hashes_plus[idx][parent_node.state[idx] as usize]
+                } else {
+                    input.hashes_minus[idx][parent_node.state[idx].unsigned_abs() as usize]
+                };
+                ret ^= if parent_node.state[idx] >= 1 {
+                    input.hashes_plus[idx][(parent_node.state[idx] - 1) as usize]
+                } else {
+                    input.hashes_minus[idx][(parent_node.state[idx] - 1).unsigned_abs() as usize]
+                };
+            }
+            ret
+        };
+
+        let cand = Cand {
+            op: 1,
+            parent: idx,
+            eval_score: parent_node.score + next_score,
+            hash,
+        };
+        cands.push(cand);
+    }
+
+    fn update<I: Iterator<Item = Cand>>(&mut self, cands: I, input: &Input, turn: usize) {
         self.next_nodes.clear();
         for cand in cands {
-            let mut new = self.nodes[cand.parent].new_node(&cand);
-            self.track.push((new.track_id, cand.op));
-            new.track_id = self.track.len() - 1;
-            self.next_nodes.push(new);
+            let parent_node = &self.nodes[cand.parent];
+            let mut new_node = parent_node.new_node(&cand, parent_node.state, input, turn);
+            self.track.push((parent_node.track_id, cand.op));
+            new_node.track_id = self.track.len() - 1;
+            self.next_nodes.push(new_node);
         }
-
         std::mem::swap(&mut self.nodes, &mut self.next_nodes);
     }
 
@@ -108,17 +224,12 @@ impl BeamSearch {
         ret
     }
 
-    fn append_cands(&self, input: &Input, idx: usize, cands: &mut Vec<Cand>) {
-        let node = &self.nodes[idx];
-        todo!();
-    }
-
     fn solve(&mut self, input: &Input) -> Vec<u8> {
         use std::cmp::Reverse;
-        let M = 1000;
+        let M = 100000;
 
         let mut cands = Vec::<Cand>::new();
-        let mut set = std::collections::HashSet::new();
+        let mut set = rustc_hash::FxHashSet::default();
         for t in 0..input.T {
             if t != 0 {
                 cands.sort_unstable_by_key(|a| Reverse(a.eval_score));
@@ -129,10 +240,12 @@ impl BeamSearch {
                         .filter(|cand| set.insert(cand.hash))
                         .take(M)
                         .cloned(),
+                    input,
+                    t - 1,
                 );
             }
             cands.clear();
-            self.enum_cands(input, &mut cands);
+            self.enum_cands(input, &mut cands, t);
         }
 
         let best = cands.iter().max_by_key(|a| a.raw_score(input)).unwrap();
@@ -147,15 +260,31 @@ impl BeamSearch {
 
 struct Input {
     T: usize,
-    PQR: Vec<(usize, usize, usize)>,
+    PQR: Vec<Vec<usize>>,
+    hashes_plus: Vec<Vec<u64>>,
+    hashes_minus: Vec<Vec<u64>>,
 }
 
-fn read_input() -> Input {
+fn read_input(rng: &mut rand_pcg::Pcg64Mcg) -> Input {
     input! {
         T: usize,
-        PQR: [(Usize1, Usize1, Usize1)]
+        PQR: [[Usize1; 3]; T]
     }
-    Input { T, PQR }
+    let mut hashes_plus = vec![vec![!0; T + 1]; N];
+    let mut hashes_minus = vec![vec![!0; T + 1]; N];
+    for i in 0..N {
+        for j in 0..=T {
+            hashes_plus[i][j] = rng.gen::<u64>();
+            hashes_minus[i][j] = rng.gen::<u64>();
+        }
+    }
+
+    Input {
+        T,
+        PQR,
+        hashes_plus,
+        hashes_minus,
+    }
 }
 
 #[derive(Debug, Clone)]
