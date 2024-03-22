@@ -67,7 +67,8 @@ struct Node {
     state: [i8; N],
 }
 impl Node {
-    fn new_node(&self, cand: &Cand, mut state: [i8; N], input: &Input, turn: usize) -> Node {
+    fn new_node(&self, cand: &Cand, input: &Input, turn: usize) -> Node {
+        let mut state = self.state;
         let add = if cand.op == 0 { 1 } else { -1 };
         for &idx in &input.PQR[turn] {
             state[idx] += add;
@@ -205,7 +206,7 @@ impl BeamSearch {
         self.next_nodes.clear();
         for cand in cands {
             let parent_node = &self.nodes[cand.parent];
-            let mut new_node = parent_node.new_node(&cand, parent_node.state, input, turn);
+            let mut new_node = parent_node.new_node(&cand, input, turn);
             self.track.push((parent_node.track_id, cand.op));
             new_node.track_id = self.track.len() - 1;
             self.next_nodes.push(new_node);
